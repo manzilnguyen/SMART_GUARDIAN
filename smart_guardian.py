@@ -150,8 +150,10 @@ QLabel#video_frame {
 """
 
 # ==============================================================================
-# 2. TELEGRAM WORKER
+# 2. ALERT WORKERS (TELEGRAM & DISCORD)
 # ==============================================================================
+
+# --- TELEGRAM WORKER ---
 def telegram_worker(token, chat_id, text=None, img_bytes=None, video_path=None):
     def _run():
         if not token or not chat_id: return
@@ -168,6 +170,51 @@ def telegram_worker(token, chat_id, text=None, img_bytes=None, video_path=None):
                     with open(video_path, 'rb') as f:
                         requests.post(f"{url}/sendVideo", data={"chat_id": chat_id}, files={'video': f}, timeout=120)
         except Exception as e: print(f"❌ [TELEGRAM ERROR] {e}")
+    threading.Thread(target=_run).start()
+
+# --- DISCORD WORKER (NEW) ---
+def discord_worker(webhook_url, text=None, img_bytes=None, risk_level="DANGER"):
+    def _run():
+        if not webhook_url: return
+        
+        # Mapping màu sắc cho Discord Embed (Decimal color)
+        # Red: 15548997, Orange: 15105570, Green: 5763719
+        color_map = {
+            "DANGER": 15548997,
+            "WARNING": 15105570,
+            "SAFE": 5763719
+        }
+        color = color_map.get(risk_level, 15548997)
+
+        try:
+            # Tạo Embed Object
+            embed = {
+                "title": f"🚨 SECURITY ALERT: {risk_level}",
+                "description": text,
+                "color": color,
+                "timestamp": datetime.utcnow().isoformat(),
+                "footer": {"text": "Guardian Security AI System"}
+            }
+            
+            payload = {"embeds": [embed]}
+            files = None
+
+            if img_bytes is not None:
+                real_bytes = bytes(img_bytes) if not isinstance(img_bytes, bytes) else img_bytes
+                files = {
+                    'file': ('alert.jpg', real_bytes, 'image/jpeg')
+                }
+                # Nếu có ảnh, thêm ảnh vào embed
+                embed["image"] = {"url": "attachment://alert.jpg"}
+
+            if files:
+                # Gửi multipart/form-data để kèm ảnh + json payload
+                requests.post(webhook_url, data={"payload_json": json.dumps(payload)}, files=files, timeout=10)
+            else:
+                # Chỉ gửi JSON nếu không có ảnh
+                requests.post(webhook_url, json=payload, timeout=10)
+
+        except Exception as e: print(f"❌ [DISCORD ERROR] {e}")
     threading.Thread(target=_run).start()
 
 # ==============================================================================
@@ -640,11 +687,21 @@ class GuardianApp(QMainWindow):
         # Configuration
         grp_cfg = QGroupBox("SYSTEM CONFIG")
         l_cfg = QVBoxLayout()
+        
+        # Cloud API
         self.txt_key = QLineEdit(); self.txt_key.setPlaceholderText("🔑 Gemini Cloud API Key")
         self.txt_key.setEchoMode(QLineEdit.Password)
+        
+        # Telegram
         self.txt_tok = QLineEdit(); self.txt_tok.setPlaceholderText("🤖 Telegram Bot Token")
         self.txt_cid = QLineEdit(); self.txt_cid.setPlaceholderText("🆔 Chat ID")
-        l_cfg.addWidget(self.txt_key); l_cfg.addWidget(self.txt_tok); l_cfg.addWidget(self.txt_cid)
+        
+        # Discord (New)
+        self.txt_discord = QLineEdit(); self.txt_discord.setPlaceholderText("🎮 Discord Webhook URL")
+        
+        l_cfg.addWidget(self.txt_key); 
+        l_cfg.addWidget(self.txt_tok); l_cfg.addWidget(self.txt_cid)
+        l_cfg.addWidget(self.txt_discord) # Add to Layout
         grp_cfg.setLayout(l_cfg)
 
         # Action Buttons
@@ -723,11 +780,24 @@ class GuardianApp(QMainWindow):
             self.lbl_status.setStyleSheet(f"color: #fff; background-color: {risk_color}; font-weight: bold; border: 2px solid #fff;")
             
             self.voice.say(f"Alert. Danger detected."); self.voice.runAndWait()
+            
+            # Xử lý ảnh bằng QBuffer một lần để dùng cho cả 2 worker
+            img_data = None
             if self.view.pixmap():
                 b = QBuffer(); b.open(QIODevice.ReadWrite)
                 self.view.pixmap().save(b, "JPG")
-                telegram_worker(self.txt_tok.text(), self.txt_cid.text(), f"🚨 {msg}", b.data())
+                img_data = b.data()
+            
+            # Gửi Telegram
+            if self.txt_tok.text() and self.txt_cid.text():
+                telegram_worker(self.txt_tok.text(), self.txt_cid.text(), f"🚨 {msg}", img_data)
+            
+            # Gửi Discord (NEW)
+            if self.txt_discord.text():
+                discord_worker(self.txt_discord.text(), msg, img_data, risk)
+
             if self.cam: self.cam.start_rec(cat)
+            
         elif risk == "SAFE":
             risk_color = "#9ece6a" 
             self.lbl_status.setText("● AREA SECURE"); 
@@ -752,9 +822,21 @@ class GuardianApp(QMainWindow):
         self.view.setPixmap(QPixmap.fromImage(qimg))
 
     def load_config(self):
-        try: d = json.load(open("config.json")); self.txt_key.setText(d.get("k")); self.txt_tok.setText(d.get("t")); self.txt_cid.setText(d.get("c"))
+        try: 
+            d = json.load(open("config.json"))
+            self.txt_key.setText(d.get("k", ""))
+            self.txt_tok.setText(d.get("t", ""))
+            self.txt_cid.setText(d.get("c", ""))
+            self.txt_discord.setText(d.get("d", "")) # Load Discord
         except: pass
-    def save_config(self): json.dump({"k": self.txt_key.text(), "t": self.txt_tok.text(), "c": self.txt_cid.text()}, open("config.json", "w"))
+        
+    def save_config(self): 
+        json.dump({
+            "k": self.txt_key.text(), 
+            "t": self.txt_tok.text(), 
+            "c": self.txt_cid.text(),
+            "d": self.txt_discord.text() # Save Discord
+        }, open("config.json", "w"))
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
