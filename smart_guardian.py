@@ -150,7 +150,7 @@ QLabel#video_frame {
 """
 
 # ==============================================================================
-# 2. ALERT WORKERS (TELEGRAM & DISCORD)
+# 2. ALERT WORKERS (TELEGRAM & DISCORD - VIETNAMESE)
 # ==============================================================================
 
 # --- TELEGRAM WORKER ---
@@ -172,53 +172,41 @@ def telegram_worker(token, chat_id, text=None, img_bytes=None, video_path=None):
         except Exception as e: print(f"❌ [TELEGRAM ERROR] {e}")
     threading.Thread(target=_run).start()
 
-# --- DISCORD WORKER (NEW) ---
+# --- DISCORD WORKER ---
 def discord_worker(webhook_url, text=None, img_bytes=None, risk_level="DANGER"):
     def _run():
         if not webhook_url: return
-        
-        # Mapping màu sắc cho Discord Embed (Decimal color)
-        # Red: 15548997, Orange: 15105570, Green: 5763719
-        color_map = {
-            "DANGER": 15548997,
-            "WARNING": 15105570,
-            "SAFE": 5763719
-        }
+        color_map = { "DANGER": 15548997, "WARNING": 15105570, "SAFE": 5763719 }
         color = color_map.get(risk_level, 15548997)
-
+        
+        # Tiêu đề tiếng Việt
+        vn_title = {
+            "DANGER": "🚨 CẢNH BÁO NGUY HIỂM",
+            "WARNING": "⚠️ CẢNH BÁO AN NINH",
+            "SAFE": "✅ AN TOÀN"
+        }
+        
         try:
-            # Tạo Embed Object
             embed = {
-                "title": f"🚨 SECURITY ALERT: {risk_level}",
+                "title": vn_title.get(risk_level, "CẢNH BÁO"),
                 "description": text,
                 "color": color,
                 "timestamp": datetime.utcnow().isoformat(),
-                "footer": {"text": "Guardian Security AI System"}
+                "footer": {"text": "Hệ thống giám sát Guardian AI"}
             }
-            
             payload = {"embeds": [embed]}
             files = None
-
             if img_bytes is not None:
                 real_bytes = bytes(img_bytes) if not isinstance(img_bytes, bytes) else img_bytes
-                files = {
-                    'file': ('alert.jpg', real_bytes, 'image/jpeg')
-                }
-                # Nếu có ảnh, thêm ảnh vào embed
+                files = {'file': ('alert.jpg', real_bytes, 'image/jpeg')}
                 embed["image"] = {"url": "attachment://alert.jpg"}
-
-            if files:
-                # Gửi multipart/form-data để kèm ảnh + json payload
-                requests.post(webhook_url, data={"payload_json": json.dumps(payload)}, files=files, timeout=10)
-            else:
-                # Chỉ gửi JSON nếu không có ảnh
-                requests.post(webhook_url, json=payload, timeout=10)
-
+            if files: requests.post(webhook_url, data={"payload_json": json.dumps(payload)}, files=files, timeout=10)
+            else: requests.post(webhook_url, json=payload, timeout=10)
         except Exception as e: print(f"❌ [DISCORD ERROR] {e}")
     threading.Thread(target=_run).start()
 
 # ==============================================================================
-# 3. CLOUD VERIFIER
+# 3. CLOUD VERIFIER (GEMINI)
 # ==============================================================================
 class CloudVerifier(QObject):
     result_signal = Signal(bool, str, str, object)
@@ -241,19 +229,19 @@ class CloudVerifier(QObject):
             resized_img = cv2.resize(img, (640, new_h))
             pil_img = Image.fromarray(cv2.cvtColor(resized_img, cv2.COLOR_BGR2RGB))
             
+            # Prompt yêu cầu trả lời JSON và giải thích tiếng Việt
             if alert_type == "WEAPON":
-                prompt = """Security Check. LETHAL WEAPON (Gun/Knife) visible? 
-                Ignore: Phone, Tools, Toys. JSON: {"risk": "DANGER"/"SAFE", "reason": "VN string (No AI mention)"}"""
+                prompt = """Security Check. Có vũ khí nguy hiểm (Súng/Dao) không? 
+                Bỏ qua: Điện thoại, Dụng cụ cầm tay. JSON: {"risk": "DANGER"/"SAFE", "reason": "Giải thích ngắn gọn bằng Tiếng Việt"}"""
             elif alert_type == "ACCIDENT":
-                prompt = """Traffic Check. REAL ACCIDENT (Crash/Fire)? 
-                Ignore: Parked, Normal riding. JSON: {"risk": "DANGER"/"SAFE", "reason": "VN string (No AI mention)"}"""
+                prompt = """Traffic Check. Có tai nạn giao thông (Đâm xe/Ngã xe/Tàu hỏa đâm) không? 
+                Bỏ qua: Đang đỗ xe, lái xe bình thường. JSON: {"risk": "DANGER"/"SAFE", "reason": "Giải thích ngắn gọn bằng Tiếng Việt"}"""
             elif alert_type == "FIRE":
-                prompt = """Fire Check. REAL FIRE/SMOKE visible? 
-                Ignore: Lights, Sunset. JSON: {"risk": "DANGER"/"SAFE", "reason": "VN string (No AI mention)"}"""
+                prompt = """Fire Check. Có ĐÁM CHÁY hoặc KHÓI đen lớn không? 
+                JSON: {"risk": "DANGER"/"SAFE", "reason": "Giải thích ngắn gọn bằng Tiếng Việt"}"""
             elif alert_type == "HEALTH":
-                prompt = """Medical Emergency Check. 
-                Is the person UNCONSCIOUS, COLLAPSED, or HAVING A STROKE on the floor?
-                Output JSON: {"risk": "DANGER" (Emergency) or "SAFE" (Normal Activity), "reason": "Explain in Vietnamese"}"""
+                prompt = """Medical Check. Có người ngã bất tỉnh, đột quỵ nằm trên sàn không?
+                JSON: {"risk": "DANGER"/"SAFE", "reason": "Giải thích ngắn gọn bằng Tiếng Việt"}"""
             else: return
 
             res = self.client.models.generate_content(model="gemini-flash-latest", contents=[prompt, pil_img])
@@ -263,20 +251,21 @@ class CloudVerifier(QObject):
                 if match:
                     data = json.loads(match.group(0))
                     is_danger = data.get("risk") == "DANGER"
-                    reason = data.get("reason", "Unknown")
+                    reason = data.get("reason", "Không xác định")
                     self.result_signal.emit(is_danger, alert_type, reason, img)
         except Exception as e:
             print(f"Cloud API Error: {e}")
 
 # ==============================================================================
-# 4. LOCAL AI GUARD
+# 4. LOCAL AI GUARD (FULL CHỨC NĂNG + TÀU HỎA + VA CHẠM)
 # ==============================================================================
 class LocalObjectGuard:
     def __init__(self):
         self.pose_model = None; self.models = []
         self.back_sub = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=50, detectShadows=False)
         self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3))
-        
+        self.frame_count = 0
+
         print("⚡ [INIT] Loading Security Models...")
         
         base_model = "yolov8s"
@@ -290,7 +279,8 @@ class LocalObjectGuard:
                 use_model = ov_model_dir
             except: use_model = "yolov8n.pt"
 
-        vehicles_map = {2: "Car", 3: "Motorbike", 5: "Bus", 7: "Truck", 1: "Bike"}
+        # --- QUAN TRỌNG: THÊM 6: "Train" ---
+        vehicles_map = {2: "Car", 3: "Motorbike", 5: "Bus", 7: "Truck", 1: "Bike", 6: "Train"}
         human_proxies = [0] 
 
         configs = [
@@ -343,6 +333,18 @@ class LocalObjectGuard:
         if small_area > 0 and (inter_area / small_area) > 0.8: return True
         return False
 
+    def get_bottom_center(self, box):
+        return ((box[0] + box[2]) / 2, box[3])
+
+    def is_ground_collision(self, box1, box2, threshold_ratio=0.15):
+        bc1 = self.get_bottom_center(box1)
+        bc2 = self.get_bottom_center(box2)
+        dist = math.sqrt((bc1[0]-bc2[0])**2 + (bc1[1]-bc2[1])**2)
+        h1 = box1[3] - box1[1]
+        h2 = box2[3] - box2[1]
+        avg_h = (h1 + h2) / 2
+        return dist < (avg_h * threshold_ratio)
+
     def check_fire_color(self, frame, motion_mask):
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         lower_red1 = np.array([0, 150, 150]); upper_red1 = np.array([10, 255, 255])
@@ -371,6 +373,8 @@ class LocalObjectGuard:
         all_vehicles = [] 
         suspected_threats = []; detected_safe_objects = []
         suspected_crash = False; suspected_fire = False
+        self.frame_count += 1
+        
         h_img, w_img = frame.shape[:2]
         min_object_area = (h_img * w_img) * 0.015 
 
@@ -383,6 +387,7 @@ class LocalObjectGuard:
                 x, y, w, h = cv2.boundingRect(cnt)
                 motion_boxes.append([x, y, x+w, y+h])
 
+        # --- DETECTION ---
         for item in self.models:
             conf_t = item["c"].get("conf", 0.25); sz = item["c"].get("imgsz", 640)
             res = item["m"].predict(frame, conf=conf_t, imgsz=sz, verbose=False, iou=0.45)[0]
@@ -400,6 +405,7 @@ class LocalObjectGuard:
                 elif "safe" in item["c"] and cls in item["c"]["safe"]:
                     detected_safe_objects.append({"box": [x1,y1,x2,y2], "label": label})
 
+        # --- HUMAN POSE ---
         suspected_health = False
         if self.pose_model:
             results = self.pose_model.predict(frame, conf=0.35, verbose=False)
@@ -412,30 +418,18 @@ class LocalObjectGuard:
                         is_fallen = self.check_fallen(kp)
                         status = "NORMAL"; color = (0, 255, 0)
                         if is_fallen:
-                            status = "FALLEN"; color = (0, 0, 255)
+                            status = "NGA"; color = (0, 0, 255) # VN: Ngã
                             is_moving = False
                             for m_box in motion_boxes:
                                 if self.calculate_iou(box, m_box) > 0.1: is_moving = True; break
                             if not is_moving:
-                                status = "UNCONSCIOUS?"; suspected_health = True
+                                status = "BAT TINH?"; suspected_health = True # VN: Bất tỉnh
                         
                         persons_analysis.append({"box": box, "status": status})
                         cv2.rectangle(annotated, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color, 2)
                         cv2.putText(annotated, status, (int(box[0]), int(box[1])-10), 0, 0.6, color, 2)
 
-        moving_vehicles = []
-        for v in all_vehicles:
-            is_moving = False
-            for m_box in motion_boxes:
-                if self.calculate_iou(v["box"], m_box) > 0.1: is_moving = True; break
-            
-            bx = v["box"]
-            if is_moving:
-                moving_vehicles.append(v)
-                cv2.rectangle(annotated, (bx[0],bx[1]), (bx[2],bx[3]), (0,255,255), 2)
-            else:
-                cv2.rectangle(annotated, (bx[0],bx[1]), (bx[2],bx[3]), (100,100,100), 1)
-
+        # --- FIRE CHECK ---
         is_fire, fire_mask_vis = self.check_fire_color(frame, mask)
         if is_fire:
             contours_fire, _ = cv2.findContours(fire_mask_vis, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -453,6 +447,7 @@ class LocalObjectGuard:
                         suspected_fire = True
                         cv2.rectangle(annotated, (x, y), (x+w, y+h), (0, 0, 255), 2)
 
+        # --- THREAT LOGIC ---
         final_threats = []
         for threat in suspected_threats:
             is_mistake = False
@@ -466,24 +461,73 @@ class LocalObjectGuard:
                 bx = threat["box"]
                 cv2.rectangle(annotated, (bx[0],bx[1]), (bx[2],bx[3]), (0,165,255), 3)
 
+        # ======================================================================
+        # 🔥 CẢI TIẾN LOGIC VA CHẠM (XE, TÀU HỎA, NGƯỜI)
+        # ======================================================================
+        
+        # 1. Lọc xe đang di chuyển
+        moving_vehicles = []
+        for v in all_vehicles:
+            is_moving = False
+            for m_box in motion_boxes:
+                if self.calculate_iou(v["box"], m_box) > 0.1: is_moving = True; break
+            
+            # Tàu hỏa (Train) luôn coi là nguy hiểm nếu xuất hiện
+            if v["label"] == "Train": is_moving = True
+
+            bx = v["box"]
+            if is_moving:
+                moving_vehicles.append(v)
+                cv2.rectangle(annotated, (bx[0],bx[1]), (bx[2],bx[3]), (0,255,255), 2)
+            else:
+                cv2.rectangle(annotated, (bx[0],bx[1]), (bx[2],bx[3]), (100,100,100), 1)
+
+        # 2. Xe va chạm Người
         for v in moving_vehicles:
             for p in persons_analysis:
                 iou = self.calculate_iou(v["box"], p["box"])
-                if iou > 0.1: 
-                    inter_w = min(v["box"][2], p["box"][2]) - max(v["box"][0], p["box"][0])
-                    inter_h = min(v["box"][3], p["box"][3]) - max(v["box"][1], p["box"][1])
-                    if inter_w > 0 and inter_h > 0:
-                        p_area = (p["box"][2]-p["box"][0])*(p["box"][3]-p["box"][1])
-                        if (inter_w * inter_h) / p_area > 0.6: continue 
-                if iou > 0.35:
+                inter_w = min(v["box"][2], p["box"][2]) - max(v["box"][0], p["box"][0])
+                inter_h = min(v["box"][3], p["box"][3]) - max(v["box"][1], p["box"][1])
+                if inter_w > 0 and inter_h > 0:
+                    p_area = (p["box"][2]-p["box"][0])*(p["box"][3]-p["box"][1])
+                    if (inter_w * inter_h) / p_area > 0.6: continue 
+
+                # Nếu là Train, ngưỡng thoáng hơn vì tàu to
+                threshold = 0.4 if v["label"] == "Train" else 0.2
+                if iou > 0.1 and self.is_ground_collision(v["box"], p["box"], threshold_ratio=threshold):
                     suspected_crash = True
                     bx = v["box"]
-                    cv2.rectangle(annotated, (bx[0],bx[1]), (bx[2],bx[3]), (0,165,255), 3)
+                    cv2.rectangle(annotated, (bx[0],bx[1]), (bx[2],bx[3]), (0,0,255), 4)
+                    # Text không dấu trên video
+                    cv2.putText(annotated, "NGUY HIEM: VA CHAM!", (bx[0], bx[1]-20), 0, 1.0, (0,0,255), 3)
+
+        # 3. Xe va chạm Xe (Bao gồm Tàu Hỏa)
+        for i, v1 in enumerate(moving_vehicles):
+            for j, v2 in enumerate(all_vehicles):
+                if v1 == v2: continue
+                iou = self.calculate_iou(v1["box"], v2["box"])
+                
+                # Logic tàu hỏa
+                is_train_involved = (v1["label"] == "Train" or v2["label"] == "Train")
+                
+                if is_train_involved:
+                    if iou > 0.15: 
+                        suspected_crash = True
+                        bx = v1["box"]
+                        cv2.rectangle(annotated, (bx[0],bx[1]), (bx[2],bx[3]), (0,0,255), 4)
+                        cv2.putText(annotated, "CANH BAO TAU HOA!", (bx[0], bx[1]-50), 0, 1.2, (0,0,255), 4)
+                else:
+                    # Logic xe thường
+                    if iou > 0.25 and self.is_ground_collision(v1["box"], v2["box"], threshold_ratio=0.3):
+                        suspected_crash = True
+                        bx = v1["box"]
+                        cv2.rectangle(annotated, (bx[0],bx[1]), (bx[2],bx[3]), (0,0,255), 4)
+                        cv2.putText(annotated, "VA CHAM GIAO THONG!", (bx[0], bx[1]-20), 0, 1.0, (0,0,255), 3)
 
         return list(set(final_threats)), annotated, suspected_crash, suspected_fire, suspected_health
 
 # ==============================================================================
-# 5. CONTROL CENTER
+# 5. CONTROL CENTER (TRUNG TÂM XỬ LÝ)
 # ==============================================================================
 class AIWorker(QThread):
     log_signal = Signal(str, str, str)
@@ -520,14 +564,14 @@ class AIWorker(QThread):
         if alert_type == "HEALTH": self.verifying_health = False
         
         if is_danger:
-            self.log_signal.emit("DANGER", "SYSTEM", f"Hệ thống xác nhận: {reason}")
+            self.log_signal.emit("DANGER", "SYSTEM", f"Xác nhận NGUY HIỂM: {reason}")
             try:
                 b = QBuffer(); b.open(QIODevice.ReadWrite)
                 q_img = QImage(img.data, img.shape[1], img.shape[0], img.strides[0], QImage.Format_BGR888)
                 q_img.save(b, "JPG", quality=80)
             except: pass
         else:
-            self.log_signal.emit("SAFE", "INFO", f"Hệ thống loại trừ: {reason}")
+            self.log_signal.emit("SAFE", "INFO", f"Đã kiểm tra an toàn: {reason}")
 
     def run(self):
         while self.running:
@@ -540,21 +584,21 @@ class AIWorker(QThread):
                         if (curr_time - self.last_weapon_check) > self.COOLDOWN:
                             self.verifying_weapon = True
                             self.last_weapon_check = curr_time
-                            self.log_signal.emit("WARNING", "SYSTEM", "Phát hiện VŨ KHÍ. Đang xác minh AI...")
+                            self.log_signal.emit("WARNING", "SYSTEM", "Phát hiện VŨ KHÍ. Đang gửi AI kiểm tra...")
                             self.verifier.verify(img.copy(), "WEAPON")
                         
                     elif crash_detected and not self.verifying_crash:
                         if (curr_time - self.last_crash_check) > self.COOLDOWN:
                             self.verifying_crash = True
                             self.last_crash_check = curr_time
-                            self.log_signal.emit("WARNING", "SYSTEM", "Phát hiện TAI NẠN. Đang xác minh AI...")
+                            self.log_signal.emit("WARNING", "SYSTEM", "Phát hiện TAI NẠN/VA CHẠM. Đang kiểm tra...")
                             self.verifier.verify(img.copy(), "ACCIDENT")
 
                     elif fire_detected and not self.verifying_fire:
                          if (curr_time - self.last_fire_check) > self.COOLDOWN:
                             self.verifying_fire = True
                             self.last_fire_check = curr_time
-                            self.log_signal.emit("WARNING", "SYSTEM", "Phát hiện CHÁY. Đang xác minh AI...")
+                            self.log_signal.emit("WARNING", "SYSTEM", "Phát hiện CHÁY/KHÓI. Đang kiểm tra...")
                             self.verifier.verify(img.copy(), "FIRE")
 
                     if health_issue:
@@ -566,12 +610,12 @@ class AIWorker(QThread):
                         if not self.verifying_health and (curr_time - self.last_health_check) > self.COOLDOWN:
                             self.verifying_health = True
                             self.last_health_check = curr_time
-                            self.log_signal.emit("WARNING", "SYSTEM", "Phát hiện NGƯỜI BẤT TỈNH. Đang xác minh AI...")
+                            self.log_signal.emit("WARNING", "SYSTEM", "Phát hiện NGƯỜI BẤT TỈNH. Đang kiểm tra...")
                             self.verifier.verify(img.copy(), "HEALTH")
                         self.fall_counter = 0 
 
                     if any([self.verifying_weapon, self.verifying_crash, self.verifying_fire, self.verifying_health]):
-                        cv2.putText(drawn, "CLOUD AI PROCESSING...", (30, 60), 0, 1.2, (0,255,255), 3)
+                        cv2.putText(drawn, "AI DANG PHAN TICH...", (30, 60), 0, 1.2, (0,255,255), 3)
 
                     self.frame_signal.emit(drawn)
                 except Exception as e: print(f"Loop: {e}")
@@ -627,12 +671,12 @@ class VideoThread(QThread):
     def stop(self): self.running = False; self.stop_rec(); self.wait()
 
 # ==============================================================================
-# 7. MAIN APP (MODERN UI)
+# 7. MAIN APP (GIAO DIỆN TIẾNG VIỆT)
 # ==============================================================================
 class GuardianApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("GUARDIAN SECURITY AI | PRO EDITION")
+        self.setWindowTitle("HỆ THỐNG GIÁM SÁT THÔNG MINH (VN PRO)")
         self.resize(1400, 850)
         self.setStyleSheet(MODERN_THEME)
         self.voice = pyttsx3.init()
@@ -649,13 +693,11 @@ class GuardianApp(QMainWindow):
         left_panel = QVBoxLayout()
         left_panel.setSpacing(10)
 
-        # Status HUD
-        self.lbl_status = QLabel("● SYSTEM READY")
+        self.lbl_status = QLabel("● HỆ THỐNG SẴN SÀNG")
         self.lbl_status.setObjectName("status_lbl")
         self.lbl_status.setAlignment(Qt.AlignCenter)
         self.lbl_status.setStyleSheet("color: #7aa2f7; border: 1px solid #7aa2f7;")
         
-        # Video View
         self.view = QLabel()
         self.view.setObjectName("video_frame")
         self.view.setScaledContents(True)
@@ -669,50 +711,39 @@ class GuardianApp(QMainWindow):
         right_panel = QVBoxLayout()
         right_panel.setSpacing(15)
         
-        # Header Box
-        header_lbl = QLabel("COMMAND CENTER")
+        header_lbl = QLabel("TRUNG TÂM ĐIỀU KHIỂN")
         header_lbl.setFont(QFont("Segoe UI", 16, QFont.Bold))
         header_lbl.setStyleSheet("color: #fff; margin-bottom: 5px;")
         right_panel.addWidget(header_lbl)
 
-        # Source Selection
-        grp_src = QGroupBox("VIDEO SOURCE")
+        grp_src = QGroupBox("NGUỒN VIDEO")
         l_src = QVBoxLayout()
         self.cbo = QComboBox()
-        self.cbo.addItems(["📷 Live Webcam (Default)", "🌐 RTSP / HTTP URL", "▶️ YouTube / Video File"])
-        self.txt_url = QLineEdit(); self.txt_url.setPlaceholderText("Enter stream URL or file path...")
+        self.cbo.addItems(["📷 Webcam Trực tiếp", "🌐 Camera IP / Link RTSP", "▶️ Link YouTube / File Video"])
+        self.txt_url = QLineEdit(); self.txt_url.setPlaceholderText("Nhập URL stream hoặc đường dẫn file...")
         l_src.addWidget(self.cbo); l_src.addWidget(self.txt_url)
         grp_src.setLayout(l_src)
         
-        # Configuration
-        grp_cfg = QGroupBox("SYSTEM CONFIG")
+        grp_cfg = QGroupBox("CẤU HÌNH HỆ THỐNG")
         l_cfg = QVBoxLayout()
-        
-        # Cloud API
         self.txt_key = QLineEdit(); self.txt_key.setPlaceholderText("🔑 Gemini Cloud API Key")
         self.txt_key.setEchoMode(QLineEdit.Password)
-        
-        # Telegram
         self.txt_tok = QLineEdit(); self.txt_tok.setPlaceholderText("🤖 Telegram Bot Token")
-        self.txt_cid = QLineEdit(); self.txt_cid.setPlaceholderText("🆔 Chat ID")
-        
-        # Discord (New)
+        self.txt_cid = QLineEdit(); self.txt_cid.setPlaceholderText("🆔 Telegram Chat ID")
         self.txt_discord = QLineEdit(); self.txt_discord.setPlaceholderText("🎮 Discord Webhook URL")
         
         l_cfg.addWidget(self.txt_key); 
         l_cfg.addWidget(self.txt_tok); l_cfg.addWidget(self.txt_cid)
-        l_cfg.addWidget(self.txt_discord) # Add to Layout
+        l_cfg.addWidget(self.txt_discord)
         grp_cfg.setLayout(l_cfg)
 
-        # Action Buttons
-        self.btn = QPushButton("ACTIVATE SYSTEM")
+        self.btn = QPushButton("KÍCH HOẠT HỆ THỐNG")
         self.btn.setCursor(Qt.PointingHandCursor)
         self.btn.setFixedHeight(50)
         self.btn.clicked.connect(self.toggle)
 
-        # Log Table
         self.tbl = QTableWidget(0, 3)
-        self.tbl.setHorizontalHeaderLabels(["TIME", "LEVEL", "MESSAGE"])
+        self.tbl.setHorizontalHeaderLabels(["THỜI GIAN", "MỨC ĐỘ", "THÔNG BÁO"])
         self.tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
@@ -720,14 +751,12 @@ class GuardianApp(QMainWindow):
         self.tbl.setShowGrid(False)
         self.tbl.setSelectionBehavior(QTableWidget.SelectRows)
 
-        # Adding to Right Layout
         right_panel.addWidget(grp_src)
         right_panel.addWidget(grp_cfg)
         right_panel.addWidget(self.btn)
-        right_panel.addWidget(QLabel("EVENT LOGS:"))
+        right_panel.addWidget(QLabel("NHẬT KÝ SỰ KIỆN:"))
         right_panel.addWidget(self.tbl, stretch=1)
 
-        # Add Layouts to Main
         main_layout.addLayout(left_panel, stretch=7)
         main_layout.addLayout(right_panel, stretch=3)
 
@@ -737,11 +766,11 @@ class GuardianApp(QMainWindow):
             src = "0" if self.cbo.currentIndex() == 0 else self.txt_url.text()
             if not src: return
             
-            self.btn.setText("STOP SURVEILLANCE")
+            self.btn.setText("DỪNG GIÁM SÁT")
             self.btn.setObjectName("stop_btn")
-            self.btn.setStyleSheet(MODERN_THEME) # Re-apply style for ID change
+            self.btn.setStyleSheet(MODERN_THEME)
             
-            self.lbl_status.setText("● SYSTEM ACTIVE - SCANNING...")
+            self.lbl_status.setText("● ĐANG HOẠT ĐỘNG - ĐANG QUÉT...")
             self.lbl_status.setStyleSheet("color: #9ece6a; background-color: #1a1b26; border: 1px solid #9ece6a;")
             
             self.cam = VideoThread(src)
@@ -754,70 +783,59 @@ class GuardianApp(QMainWindow):
             self.cam.start(); self.ai.start()
         else:
             self.cam.stop(); self.ai.stop(); self.cam = None; self.ai = None
-            self.btn.setText("ACTIVATE SYSTEM")
+            self.btn.setText("KÍCH HOẠT HỆ THỐNG")
             self.btn.setObjectName("")
             self.btn.setStyleSheet(MODERN_THEME)
-            
-            self.lbl_status.setText("● SYSTEM STANDBY")
+            self.lbl_status.setText("● HỆ THỐNG CHỜ")
             self.lbl_status.setStyleSheet("color: #7aa2f7; background-color: #1a1b26; border: 1px solid #7aa2f7;")
-            
-            # Clear View
             self.view.setPixmap(QPixmap())
-            self.view.setText("NO SIGNAL")
+            self.view.setText("MẤT TÍN HIỆU")
             self.view.setAlignment(Qt.AlignCenter)
 
     def handle_log(self, risk, cat, msg):
         row_color = "#c0caf5"
         risk_color = "#7aa2f7"
-        
         if risk == "WARNING": 
             risk_color = "#e0af68" 
-            self.lbl_status.setText(f"⚠ VERIFYING THREAT..."); 
+            self.lbl_status.setText(f"⚠ ĐANG XÁC MINH MỐI ĐE DỌA..."); 
             self.lbl_status.setStyleSheet(f"color: #1a1b26; background-color: {risk_color}; border: none;")
         elif risk == "DANGER":
             risk_color = "#f7768e" 
-            self.lbl_status.setText(f"🚨 DANGER DETECTED"); 
+            self.lbl_status.setText(f"🚨 PHÁT HIỆN NGUY HIỂM"); 
             self.lbl_status.setStyleSheet(f"color: #fff; background-color: {risk_color}; font-weight: bold; border: 2px solid #fff;")
             
-            self.voice.say(f"Alert. Danger detected."); self.voice.runAndWait()
+            # Đọc cảnh báo (Tiếng Việt nếu máy có giọng VN, hoặc đọc tiếng Anh)
+            self.voice.say(f"Cảnh báo. Phát hiện nguy hiểm.") 
+            self.voice.runAndWait()
             
-            # Xử lý ảnh bằng QBuffer một lần để dùng cho cả 2 worker
             img_data = None
             if self.view.pixmap():
                 b = QBuffer(); b.open(QIODevice.ReadWrite)
                 self.view.pixmap().save(b, "JPG")
                 img_data = b.data()
             
-            # Gửi Telegram
             if self.txt_tok.text() and self.txt_cid.text():
                 telegram_worker(self.txt_tok.text(), self.txt_cid.text(), f"🚨 {msg}", img_data)
-            
-            # Gửi Discord (NEW)
             if self.txt_discord.text():
                 discord_worker(self.txt_discord.text(), msg, img_data, risk)
-
             if self.cam: self.cam.start_rec(cat)
-            
         elif risk == "SAFE":
             risk_color = "#9ece6a" 
-            self.lbl_status.setText("● AREA SECURE"); 
+            self.lbl_status.setText("● KHU VỰC AN TOÀN"); 
             self.lbl_status.setStyleSheet(f"color: {risk_color}; background-color: #1a1b26; border: 1px solid {risk_color}")
 
         self.tbl.insertRow(0)
         time_item = QTableWidgetItem(datetime.now().strftime("%H:%M:%S"))
         risk_item = QTableWidgetItem(risk)
         msg_item = QTableWidgetItem(msg)
-        
         risk_item.setForeground(QColor(risk_color))
         risk_item.setFont(QFont("Segoe UI", 10, QFont.Bold))
-        
         self.tbl.setItem(0, 0, time_item)
         self.tbl.setItem(0, 1, risk_item)
         self.tbl.setItem(0, 2, msg_item)
 
     def update_view(self, cv_img):
         h, w, c = cv_img.shape
-        # Create QImage
         qimg = QImage(cv_img.data, w, h, c*w, QImage.Format_RGB888).rgbSwapped()
         self.view.setPixmap(QPixmap.fromImage(qimg))
 
@@ -827,20 +845,17 @@ class GuardianApp(QMainWindow):
             self.txt_key.setText(d.get("k", ""))
             self.txt_tok.setText(d.get("t", ""))
             self.txt_cid.setText(d.get("c", ""))
-            self.txt_discord.setText(d.get("d", "")) # Load Discord
+            self.txt_discord.setText(d.get("d", ""))
         except: pass
         
     def save_config(self): 
         json.dump({
-            "k": self.txt_key.text(), 
-            "t": self.txt_tok.text(), 
-            "c": self.txt_cid.text(),
-            "d": self.txt_discord.text() # Save Discord
+            "k": self.txt_key.text(), "t": self.txt_tok.text(), 
+            "c": self.txt_cid.text(), "d": self.txt_discord.text()
         }, open("config.json", "w"))
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    # Set Fusion Theme for consistent OS look before applying Stylesheet
     app.setStyle("Fusion") 
     win = GuardianApp()
     win.show()
